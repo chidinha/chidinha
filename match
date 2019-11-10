@@ -1,0 +1,148 @@
+using Emgu.CV;
+using Emgu.CV.Features2D;
+using Emgu.CV.Structure;
+using Emgu.CV.Util;
+using Emgu.CV.XFeatures2D;
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace fingerprint2
+{
+    class match
+    {
+        private Image<Gray, Byte> imagem;
+        private Image<Bgr, Byte> minucias;
+
+
+        public Image<Gray, byte> Imagem { get => imagem; set => imagem = value; }
+
+        public Image<Bgr, byte> Minucias { get => minucias; set => minucias = value; }
+
+        //A partir do nome da imagem le nomaliza, verifica as features e as retorna em um vetor
+        public Mat LerImagem(string nomeImagem)
+        {
+            Mat descriptor = new Mat();
+            this.Imagem = new Image<Gray, byte>(nomeImagem);
+            Imagem = Imagem.ThresholdBinary(new Gray(200), new Gray(255));
+            Mat input = esqueleton(Imagem).Mat;
+            Mat harris_coners, harris_normalised = new Mat();
+            harris_coners = Mat.Zeros(input.Rows, input.Cols, Emgu.CV.CvEnum.DepthType.Cv32F, 3);
+            CvInvoke.CornerHarris(input, harris_coners, 2, 3, 0.64, Emgu.CV.CvEnum.BorderType.Default);
+            CvInvoke.Normalize(harris_coners, harris_normalised, 0, 255, Emgu.CV.CvEnum.NormType.MinMax, Emgu.CV.CvEnum.DepthType.Cv32F, null);
+            this.Minucias = input.ToImage<Bgr, byte>();
+
+            BriefDescriptorExtractor orb_descriptor = new BriefDescriptorExtractor();
+
+            VectorOfKeyPoint pontos = new VectorOfKeyPoint();
+            pontos = ExtrairKeyPoints(harris_normalised);
+
+            orb_descriptor.Compute(input, pontos, descriptor);
+            return descriptor;
+
+        }
+
+        public VectorOfKeyPoint ExtrairKeyPoints(Mat harris_normalised)
+        {
+            double threshold = 125.0;
+            VectorOfKeyPoint vectorOfKeyPoint = new VectorOfKeyPoint();
+
+            Mat rescaled = new Mat();
+            CvInvoke.ConvertScaleAbs(harris_normalised, rescaled, 100, 3);
+            Mat harris_c = new Mat(rescaled.Rows, rescaled.Cols, Emgu.CV.CvEnum.DepthType.Cv8U, 3);
+
+            VectorOfMat mats_In = new VectorOfMat(rescaled, rescaled, rescaled);
+            int[] from_to = { 0, 0, 1, 1, 2, 2 };
+            Bgr rgb1 = new Bgr(0, 255, 0);
+            Bgr rgb2 = new Bgr(0, 0, 255);
+            MCvScalar min_color2 = rgb2.MCvScalar;
+            MCvScalar min_color = rgb1.MCvScalar;
+            CvInvoke.MixChannels(mats_In, harris_c, from_to);
+            Matrix<float> matrix = new Matrix<float>(harris_normalised.Rows, harris_normalised.Cols);
+            harris_normalised.CopyTo(matrix);
+            var kp = new MKeyPoint[1];
+            for (int x = 0; x < harris_normalised.Cols; x++)
+            {
+                for (int y = 0; y < harris_normalised.Rows; y++)
+                {
+                    if (Convert.ToDouble(matrix[y, x]) > threshold)
+                    {
+                        kp[0].Point = new PointF(x, y);
+
+                        vectorOfKeyPoint.Push(kp);
+                        CvInvoke.Circle(Minucias, new Point(x, y), 5, new Bgr(0, 0, 255).MCvScalar, 1, Emgu.CV.CvEnum.LineType.FourConnected, 0);
+                    }
+                }
+            }
+
+            return vectorOfKeyPoint;
+
+        }
+
+
+        public Mat LerImagem(Image<Gray, byte> img)
+        {
+            Mat descriptor = new Mat();
+            Imagem = img.ThresholdBinary(new Gray(200), new Gray(255));
+            Mat input = esqueleton(Imagem).Mat;
+
+        }
+
+       
+
+        public Image<Gray, Byte> esqueleton(Image<Gray, Byte> imagem)
+        {
+
+            var ImgSaida = new Image<Gray, Byte>(imagem.Width, imagem.Height, new Gray(255));
+            Emgu.CV.XImgproc.XImgprocInvoke.Thinning(imagem, ImgSaida, Emgu.CV.XImgproc.ThinningTypes.ZhangSuen);
+            return ImgSaida.Not();
+        }
+
+        public bool CompararDigitais(Mat desciptor, Mat descriptor2)
+        {
+            bool corresponde = false;
+
+            descricao matcher = new descricao();
+
+            VectorOfDMatch match = new VectorOfDMatch();
+            BFMatcher bFMatcher = new BFMatcher(DistanceType.Hamming, true);
+
+            bFMatcher.Match(descriptor2, desciptor, match);
+
+            float score = 0;
+            for (int i = 0; i < match.Size; i++)
+            {
+                score += match[i].Distance;
+            }
+            if(score / match.Size < 33)
+            {
+                corresponde = true;
+            }
+            return corresponde;
+        }
+
+        public Image<Gray, Byte>ConverterBinarioParaImagem(byte[] data)
+        {
+            Image imagem;
+            using(MemoryStream ms= new MemoryStream(data))
+            {
+                imagem = Image.FromStream(ms);
+            }
+
+            Bitmap bitmapImg = (Bitmap)imagem;
+
+            Image<Gray, Byte> imgRetorno = new Image<Gray, Byte>(bitmapImg);
+            return imgRetorno;
+
+        }
+    }
+}
+
+public partial class descricao : DescriptorMatcher
+{
+
+}
